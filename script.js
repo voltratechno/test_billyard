@@ -1,0 +1,1114 @@
+// ===========================
+// MQTT CONFIGURATION
+// ===========================
+const MQTT_BROKER = "broker.hivemq.com";
+const MQTT_PORT = 8000; // WebSocket port (tanpa SSL)
+const MQTT_CLIENT_ID = "web_billiard_" + Math.random().toString(16).substring(2, 10);
+
+// MQTT Topics
+const MQTT_TOPIC_STATUS = "billiard/esp32/status";
+const MQTT_TOPIC_SENSOR = "billiard/esp32/sensor";
+const MQTT_TOPIC_COUNTER = "billiard/esp32/counter";
+const MQTT_TOPIC_COUNTER_EVENT = "billiard/esp32/counter_event";
+const MQTT_TOPIC_MOTOR = "billiard/esp32/motor";
+const MQTT_TOPIC_SERVO = "billiard/esp32/servo";
+const MQTT_TOPIC_DEBUG = "billiard/esp32/debug";
+
+// Command Topics (Web → ESP32)
+const MQTT_TOPIC_COMMAND = "billiard/web/command";
+const MQTT_TOPIC_FIRE = "billiard/web/fire";
+const MQTT_TOPIC_DISTANCE = "billiard/web/distance";
+const MQTT_TOPIC_PWM = "billiard/web/pwm";
+const MQTT_TOPIC_RESET = "billiard/web/reset";
+
+// MQTT Client
+let mqttClient = null;
+let mqttConnected = false;
+
+// ===========================
+// STATE
+// ===========================
+let selectedBallCount = 1;
+let selectedDistance = 60;
+let selectedPWM = 80;
+let isRunning = false;
+let isAutoMode = false; // false = manual, true = auto
+let totalBalls = 9;
+let ballsRemaining = 9;
+let ballsInCount = 0;
+let ballsOutCount = 0;
+let autoModeRunning = false;
+let autoModeTargetBalls = 0;
+let autoModeBallsDispensed = 0;
+
+// Sensor status from ESP32
+let sensorStatus = {
+    ir_up: false,
+    ir_down: false,
+    motor_active: false,
+    servo_position: 0,
+    counter: 0
+};
+
+// PWM Settings (disimpan di localStorage agar tidak hilang saat refresh)
+let pwmSettings = {
+    60: 200,
+    90: 350,
+    120: 500,
+    150: 650
+};
+
+// Load PWM settings dari localStorage
+const savedPWM = localStorage.getItem('pwmSettings');
+if (savedPWM) {
+    pwmSettings = JSON.parse(savedPWM);
+}
+
+// Elements
+const ballCountSlider = document.getElementById('ballCountSlider');
+const ballCountValue = document.getElementById('ballCountValue');
+const manualModeBtn = document.getElementById('manualModeBtn');
+const autoModeBtn = document.getElementById('autoModeBtn');
+const modeInfo = document.getElementById('modeInfo');
+const manualFireBtn = document.getElementById('manualFireBtn');
+const autoStartBtn = document.getElementById('autoStartBtn');
+const stopBtn = document.getElementById('stopBtn');
+const resetBtn = document.getElementById('resetBtn');
+const selectedBallsDisplay = document.getElementById('selectedBalls');
+const selectedDistanceDisplay = document.getElementById('selectedDistance');
+const modeDisplay = document.getElementById('modeDisplay');
+const targetBallsRow = document.getElementById('targetBallsRow');
+const machineStatusDisplay = document.getElementById('machineStatus');
+const motorStatusDisplay = document.getElementById('motorStatus');
+const servoStatusDisplay = document.getElementById('servoStatus');
+const statusDot = document.getElementById('statusDot');
+const connectionText = document.getElementById('connectionText');
+const ballsRemainingDisplay = document.getElementById('ballsRemaining');
+const distanceBtns = document.querySelectorAll('.distance-btn');
+const notificationContainer = document.getElementById('notificationContainer');
+
+// Calibration Modal Elements
+const calibrateBtn = document.getElementById('calibrateBtn');
+const calibrationModal = document.getElementById('calibrationModal');
+const closeModalBtn = document.getElementById('closeModalBtn');
+const cancelCalibrateBtn = document.getElementById('cancelCalibrateBtn');
+const saveCalibrateBtn = document.getElementById('saveCalibrateBtn');
+const testPwmBtns = document.querySelectorAll('.test-pwm-btn');
+
+// Notification System
+function showNotification(title, message, type = 'info', duration = 3000) {
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+
+    const icons = {
+        success: 'fa-check-circle',
+        warning: 'fa-exclamation-triangle',
+        error: 'fa-times-circle',
+        info: 'fa-info-circle'
+    };
+
+    notification.innerHTML = `
+        <div class="notification-icon">
+            <i class="fas ${icons[type]}"></i>
+        </div>
+        <div class="notification-content">
+            <div class="notification-title">${title}</div>
+            <div class="notification-message">${message}</div>
+        </div>
+        <button class="notification-close" onclick="this.parentElement.remove()">
+            <i class="fas fa-times"></i>
+        </button>
+        <div class="notification-progress"></div>
+    `;
+
+    notificationContainer.appendChild(notification);
+
+    // Auto remove after duration
+    setTimeout(() => {
+        notification.classList.add('removing');
+        setTimeout(() => {
+            notification.remove();
+        }, 400);
+    }, duration);
+
+    return notification;
+}
+
+// Mode Selection
+manualModeBtn.addEventListener('click', () => {
+    setMode(false);
+});
+
+autoModeBtn.addEventListener('click', () => {
+    setMode(true);
+});
+
+function setMode(isAuto) {
+    isAutoMode = isAuto;
+    const autoModeInfo = document.getElementById('autoModeInfo');
+    const ballCountCard = document.getElementById('ballCountCard');
+
+    if (isAuto) {
+        // Auto Mode
+        manualModeBtn.classList.remove('active');
+        autoModeBtn.classList.add('active');
+        manualFireBtn.style.display = 'none';
+        autoStartBtn.style.display = 'block';
+        autoModeInfo.style.display = 'block';
+        ballCountCard.style.display = 'block'; // Tampilkan card jumlah bola
+        targetBallsRow.style.display = 'flex'; // Tampilkan row target bola
+        modeDisplay.textContent = 'Otomatis';
+        modeInfo.innerHTML = '<p><i class="fas fa-info-circle"></i> <strong>Otomatis:</strong> Aktif</p>';
+
+        // Update info auto mode
+        updateAutoModeInfo();
+    } else {
+        // Manual Mode
+        autoModeBtn.classList.remove('active');
+        manualModeBtn.classList.add('active');
+        autoStartBtn.style.display = 'none';
+        autoModeInfo.style.display = 'none';
+        ballCountCard.style.display = 'none'; // Sembunyikan card jumlah bola
+        targetBallsRow.style.display = 'none'; // Sembunyikan row target bola
+        manualFireBtn.style.display = 'block';
+        modeDisplay.textContent = 'Manual';
+        modeInfo.innerHTML = '<p><i class="fas fa-info-circle"></i> <strong>Manual:</strong> Aktif - 1 bola per klik</p>';
+
+        // Stop auto mode jika sedang berjalan
+        if (autoModeRunning) {
+            stopAutoMode();
+        }
+    }
+}
+
+// Update auto mode info display
+function updateAutoModeInfo() {
+    const autoBallCount = document.getElementById('autoBallCount');
+    const autoDistance = document.getElementById('autoDistance');
+    const autoProgress = document.getElementById('autoProgress');
+    const autoProgressText = document.getElementById('autoProgressText');
+
+    if (autoBallCount) autoBallCount.textContent = selectedBallCount;
+    if (autoDistance) autoDistance.textContent = selectedDistance + ' cm';
+
+    // Update progress
+    if (autoModeRunning) {
+        const progress = (autoModeBallsDispensed / autoModeTargetBalls) * 100;
+        if (autoProgress) autoProgress.style.width = progress + '%';
+        if (autoProgressText) autoProgressText.textContent = `${autoModeBallsDispensed}/${autoModeTargetBalls} bola`;
+    } else {
+        if (autoProgress) autoProgress.style.width = '0%';
+        if (autoProgressText) autoProgressText.textContent = `0/${selectedBallCount} bola`;
+    }
+}
+
+// Update Distance Buttons dengan PWM values yang tersimpan
+function updateDistanceButtons() {
+    distanceBtns.forEach(btn => {
+        const distance = btn.dataset.distance;
+        const pwm = pwmSettings[distance];
+        btn.dataset.pwm = pwm;
+        // Note: HTML doesn't have .pwm-label element, just update data-pwm attribute
+    });
+}
+
+// Distance Button Selection
+distanceBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+        // Remove active class from all buttons
+        distanceBtns.forEach(b => b.classList.remove('active'));
+
+        // Add active class to clicked button
+        btn.classList.add('active');
+
+        // Update values
+        selectedDistance = parseInt(btn.dataset.distance);
+        selectedPWM = parseInt(btn.dataset.pwm);
+
+        // Update display
+        selectedDistanceDisplay.textContent = selectedDistance + ' cm';
+
+        // Update auto mode info jika dalam mode auto
+        if (isAutoMode) {
+            updateAutoModeInfo();
+        }
+    });
+});
+
+// Ball count slider
+ballCountSlider.addEventListener('input', (e) => {
+    selectedBallCount = parseInt(e.target.value);
+    ballCountValue.textContent = selectedBallCount;
+    selectedBallsDisplay.textContent = selectedBallCount + ' Bola';
+    updateSliderGradient(ballCountSlider);
+
+    // Update auto mode info jika dalam mode auto
+    if (isAutoMode) {
+        updateAutoModeInfo();
+    }
+});
+
+// Update slider gradient based on value
+function updateSliderGradient(slider) {
+    const min = parseInt(slider.min);
+    const max = parseInt(slider.max);
+    const value = parseInt(slider.value);
+    const percentage = ((value - min) / (max - min)) * 100;
+    slider.style.background = `linear-gradient(90deg, #1976D2 ${percentage}%, #E3F2FD ${percentage}%)`;
+}
+
+// Manual Fire Button - kirim satu bola via MQTT
+manualFireBtn.addEventListener('click', () => {
+    if (ballsRemaining <= 0) {
+        showNotification(
+            'Bola Habis!',
+            'Semua bola sudah dikeluarkan. Silakan reset untuk memulai lagi.',
+            'warning',
+            4000
+        );
+        return;
+    }
+
+    if (!mqttConnected) {
+        showNotification(
+            '⚠️ MQTT Tidak Terhubung',
+            'Tidak dapat mengirim perintah. Periksa koneksi.',
+            'error',
+            3000
+        );
+        return;
+    }
+
+    // Kirim perintah ke ESP32 via MQTT
+    console.log('Mengeluarkan bola:', {
+        jarak: selectedDistance + ' cm',
+        pwm: selectedPWM,
+        durasi: '3 detik'
+    });
+
+    // Update counter lokal (immediate feedback)
+    ballsRemaining--;
+    ballsRemainingDisplay.textContent = ballsRemaining;
+
+    // 1. Kirim perintah FIRE ke ESP32
+    publishMQTT(MQTT_TOPIC_FIRE, 'FIRE');
+    console.log('→ Perintah FIRE dikirim');
+
+    // 2. Kirim data jarak dan PWM
+    publishMQTT(MQTT_TOPIC_DISTANCE, String(selectedDistance));
+    publishMQTT(MQTT_TOPIC_PWM, String(selectedPWM));
+
+    // UI Update sementara
+    if (motorStatusDisplay) {
+        motorStatusDisplay.textContent = 'ON';
+        motorStatusDisplay.classList.add('active');
+    }
+    if (servoStatusDisplay) {
+        servoStatusDisplay.textContent = '180°';
+    }
+    machineStatusDisplay.textContent = 'Mengeluarkan Bola...';
+    isRunning = true;
+
+    // ESP32 akan menangani timing motor (3 detik) dan servo otomatis
+    // Update UI akan dilakukan via MQTT message dari ESP32
+
+    // Notifikasi
+    showNotification(
+        '🎱 Mengeluarkan Bola',
+        `Sisa bola: ${ballsRemaining}/${totalBalls}\nJarak: ${selectedDistance} cm\nPWM: ${selectedPWM}\nServo: 90° → 180° → 90°`,
+        'info',
+        3000
+    );
+});
+
+// Auto Start Button - kirim perintah ke ESP32 via MQTT untuk mode otomatis
+autoStartBtn.addEventListener('click', () => {
+    if (ballsRemaining <= 0) {
+        showNotification(
+            'Bola Habis!',
+            'Semua bola sudah dikeluarkan. Silakan reset untuk memulai lagi.',
+            'warning',
+            4000
+        );
+        return;
+    }
+
+    if (selectedBallCount > ballsRemaining) {
+        showNotification(
+            '⚠️ Jumlah Bola Terlalu Banyak',
+            `Hanya tersisa ${ballsRemaining} bola. Kurangi jumlah bola atau reset.`,
+            'warning',
+            4000
+        );
+        return;
+    }
+
+    console.log('Memulai mode otomatis:', {
+        jumlah: selectedBallCount,
+        jarak: selectedDistance + ' cm',
+        pwm: selectedPWM
+    });
+
+    // Set auto mode state
+    autoModeRunning = true;
+    autoModeTargetBalls = selectedBallCount;
+    autoModeBallsDispensed = 0;
+
+    // Publish MQTT commands - Kirim jumlah bola dalam JSON
+    publishMQTT(MQTT_TOPIC_COMMAND, JSON.stringify({
+        command: 'START_AUTO',
+        ballCount: selectedBallCount
+    }));
+    publishMQTT(MQTT_TOPIC_DISTANCE, String(selectedDistance));
+    publishMQTT(MQTT_TOPIC_PWM, String(selectedPWM));
+
+    // Update info display
+    updateAutoModeInfo();
+
+    // Show notification
+    showNotification(
+        '🔄 Mode Otomatis Dimulai',
+        `Mengeluarkan ${selectedBallCount} bola\nJarak: ${selectedDistance} cm\nPWM: ${selectedPWM}\nServo: 90° → 180° → 90°`,
+        'info',
+        4000
+    );
+
+    // UI Update
+    autoStartBtn.style.display = 'none';
+    stopBtn.style.display = 'block';
+    machineStatusDisplay.textContent = 'Mengeluarkan Bola...';
+    isRunning = true;
+});
+
+// Stop button via MQTT
+stopBtn.addEventListener('click', () => {
+    console.log('Menghentikan mesin...');
+
+    // Stop auto mode
+    stopAutoMode();
+
+    // Publish MQTT command
+    publishMQTT(MQTT_TOPIC_COMMAND, 'STOP');
+
+    // UI Update
+    if (isAutoMode) {
+        autoStartBtn.style.display = 'block';
+    }
+    stopBtn.style.display = 'none';
+    machineStatusDisplay.textContent = 'Siap';
+    isRunning = false;
+
+    // Show notification
+    showNotification(
+        '⏹️ Dihentikan',
+        'Mode otomatis dihentikan. Bola tidak dikeluarkan lagi.',
+        'warning',
+        3000
+    );
+});
+
+// Stop auto mode function
+function stopAutoMode() {
+    autoModeRunning = false;
+    autoModeTargetBalls = 0;
+    autoModeBallsDispensed = 0;
+    updateAutoModeInfo();
+}
+
+// Reset button via MQTT
+resetBtn.addEventListener('click', () => {
+    if (!confirm('Reset jumlah bola ke 9?')) {
+        return;
+    }
+
+    console.log('Reset bola...');
+
+    // Stop auto mode jika running
+    if (autoModeRunning) {
+        stopAutoMode();
+    }
+
+    // Publish MQTT command
+    publishMQTT(MQTT_TOPIC_RESET, 'RESET');
+
+    // Update local state sementara (actual update akan dari ESP32 via MQTT)
+    ballsRemaining = 9;
+    ballsRemainingDisplay.textContent = ballsRemaining;
+    machineStatusDisplay.textContent = 'Siap';
+    isRunning = false;
+
+    // Show auto start button if in auto mode
+    if (isAutoMode) {
+        autoStartBtn.style.display = 'block';
+        stopBtn.style.display = 'none';
+        updateAutoModeInfo();
+    }
+
+    // Show notification
+    showNotification(
+        '🔄 Reset Berhasil',
+        `Jumlah bola direset ke ${ballsRemaining} bola`,
+        'success',
+        3000
+    );
+});
+
+// Calibration Modal
+calibrateBtn.addEventListener('click', () => {
+    // Load current PWM values ke input fields
+    document.getElementById('pwm60').value = pwmSettings[60];
+    document.getElementById('pwm90').value = pwmSettings[90];
+    document.getElementById('pwm120').value = pwmSettings[120];
+    document.getElementById('pwm150').value = pwmSettings[150];
+
+    // Show modal
+    calibrationModal.classList.add('active');
+});
+
+// Close modal
+closeModalBtn.addEventListener('click', () => {
+    calibrationModal.classList.remove('active');
+});
+
+cancelCalibrateBtn.addEventListener('click', () => {
+    calibrationModal.classList.remove('active');
+});
+
+// Close modal when clicking outside
+calibrationModal.addEventListener('click', (e) => {
+    if (e.target === calibrationModal) {
+        calibrationModal.classList.remove('active');
+    }
+});
+
+// Test PWM button via MQTT
+testPwmBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+        const distance = btn.dataset.distance;
+        const pwmInput = document.getElementById('pwm' + distance);
+        const pwm = parseInt(pwmInput.value);
+
+        console.log(`Testing PWM ${pwm} untuk jarak ${distance}cm`);
+
+        // Kirim test command ke ESP32 via MQTT
+        publishMQTT(MQTT_TOPIC_PWM, String(pwm));
+        publishMQTT(MQTT_TOPIC_DISTANCE, String(distance));
+        publishMQTT(MQTT_TOPIC_FIRE, 'TEST');
+
+        machineStatusDisplay.textContent = `Testing PWM ${pwm}...`;
+
+        // Show notification
+        showNotification(
+            `🧪 Testing PWM ${pwm}`,
+            `Jarak target: ${distance} cm\nUkur dengan meteran untuk memastikan`,
+            'info',
+            3000
+        );
+
+        setTimeout(() => {
+            machineStatusDisplay.textContent = 'Siap';
+        }, 2000);
+    });
+});
+
+// Save PWM settings
+saveCalibrateBtn.addEventListener('click', () => {
+    // Get values dari input fields
+    pwmSettings[60] = parseInt(document.getElementById('pwm60').value) || 200;
+    pwmSettings[90] = parseInt(document.getElementById('pwm90').value) || 350;
+    pwmSettings[120] = parseInt(document.getElementById('pwm120').value) || 500;
+    pwmSettings[150] = parseInt(document.getElementById('pwm150').value) || 650;
+
+    // Save ke localStorage
+    localStorage.setItem('pwmSettings', JSON.stringify(pwmSettings));
+
+    // Update distance buttons dengan PWM values baru
+    updateDistanceButtons();
+
+    // Update current selected PWM jika perlu
+    const currentBtn = document.querySelector('.distance-btn.active');
+    if (currentBtn) {
+        selectedPWM = parseInt(currentBtn.dataset.pwm);
+    }
+
+    console.log('PWM Settings saved:', pwmSettings);
+
+    // Close modal
+    calibrationModal.classList.remove('active');
+
+    // Show notification
+    showNotification(
+        '💾 PWM Disimpan',
+        'Pengaturan PWM berhasil disimpan!',
+        'success',
+        3000
+    );
+});
+
+// ===========================
+// MQTT FUNCTIONS
+// ===========================
+
+// Initialize MQTT Connection
+function initMQTT() {
+    console.log('='.repeat(60));
+    console.log('INIT MQTT CONNECTION');
+    console.log('='.repeat(60));
+    console.log('MQTT Broker:', MQTT_BROKER);
+    console.log('MQTT Port:', MQTT_PORT);
+    console.log('MQTT Client ID:', MQTT_CLIENT_ID);
+    console.log('MQTT Protocol: WebSocket (ws://) - Tanpa SSL');
+
+    // Safety check untuk elemen DOM
+    if (!connectionText || !statusDot) {
+        console.error('✗ DOM elements not found!');
+        console.error('connectionText:', connectionText);
+        console.error('statusDot:', statusDot);
+        return;
+    }
+
+    // Update UI status
+    connectionText.textContent = 'Menghubungkan...';
+    statusDot.classList.remove('offline');
+    statusDot.style.background = '#FFA726'; // Orange untuk connecting
+
+    // WebSocket URL untuk HiveMQ Public Broker
+    // Menggunakan ws:// (tanpa SSL) untuk port 8000
+    const connectUrl = `ws://${MQTT_BROKER}:${MQTT_PORT}/mqtt`;
+
+    console.log('Connect URL:', connectUrl);
+    console.log('Attempting connection...');
+
+    try {
+        mqttClient = mqtt.connect(connectUrl, {
+            clientId: MQTT_CLIENT_ID,
+            clean: true,
+            connectTimeout: 10000,    // 10 detik timeout
+            reconnectPeriod: 5000,    // Reconnect setiap 5 detik
+            keepalive: 60,
+            protocolId: 'MQTT',
+            protocolVersion: 4        // MQTT 3.1.1
+        });
+
+        // Connection successful
+        mqttClient.on('connect', () => {
+            console.log('✓✓✓ MQTT CONNECTED! ✓✓✓');
+            console.log('='.repeat(60));
+            mqttConnected = true;
+
+            // Update UI
+            if (statusDot) {
+                statusDot.classList.remove('offline');
+                statusDot.style.background = '#4CAF50'; // Green
+            }
+            if (connectionText) connectionText.textContent = 'Terhubung ke Device';
+
+            // Subscribe ke topics
+            const topics = [
+                MQTT_TOPIC_SENSOR,
+                MQTT_TOPIC_COUNTER,
+                MQTT_TOPIC_COUNTER_EVENT,
+                MQTT_TOPIC_MOTOR,
+                MQTT_TOPIC_SERVO,
+                MQTT_TOPIC_STATUS,
+                MQTT_TOPIC_DEBUG
+            ];
+
+            topics.forEach(topic => {
+                mqttClient.subscribe(topic, { qos: 0 }, (err) => {
+                    if (!err) {
+                        console.log('✓ Subscribed:', topic);
+                    } else {
+                        console.error('✗ Subscribe failed:', topic, err);
+                    }
+                });
+            });
+
+            console.log('✓ All topics subscribed successfully');
+            console.log('='.repeat(60));
+
+            showNotification(
+                '📡 MQTT Terhubung',
+                'Berhasil terhubung ke HiveMQ Public Broker!\nPort: 8000 (WebSocket)\nSiap menerima data dari ESP32',
+                'success',
+                3000
+            );
+        });
+
+        // Error handler
+        mqttClient.on('error', (err) => {
+            console.error('✗✗✗ MQTT ERROR ✗✗✗');
+            console.error('Error type:', err.constructor.name);
+            console.error('Error message:', err.message);
+            console.error('Full error:', err);
+
+            mqttConnected = false;
+            if (statusDot) statusDot.classList.add('offline');
+            if (connectionText) connectionText.textContent = 'MQTT Error - Cek Console';
+
+            showNotification(
+                '❌ MQTT Error',
+                'Gagal terhubung: ' + err.message + '\nCek browser console (F12)',
+                'error',
+                5000
+            );
+        });
+
+        // Connection closed
+        mqttClient.on('close', () => {
+            console.log('MQTT Connection closed');
+            mqttConnected = false;
+            if (statusDot) statusDot.classList.add('offline');
+            if (connectionText) connectionText.textContent = 'Terputus - Reconnecting...';
+        });
+
+        // Offline event
+        mqttClient.on('offline', () => {
+            console.log('MQTT Client went offline');
+            mqttConnected = false;
+            if (statusDot) statusDot.classList.add('offline');
+            if (connectionText) connectionText.textContent = 'Offline - Reconnecting...';
+        });
+
+        // End event
+        mqttClient.on('end', () => {
+            console.log('MQTT Connection ended');
+            mqttConnected = false;
+            if (statusDot) statusDot.classList.add('offline');
+            if (connectionText) connectionText.textContent = 'Connection Ended';
+        });
+
+        // Reconnecting
+        mqttClient.on('reconnect', () => {
+            console.log('MQTT Attempting to reconnect...');
+            if (connectionText) connectionText.textContent = 'Reconnecting...';
+            if (statusDot) statusDot.style.background = '#FFA726'; // Orange
+        });
+
+        // Message received
+        mqttClient.on('message', (topic, message) => {
+            handleMQTTMessage(topic, message);
+        });
+
+        // Connection timeout (hanya jika supported)
+        mqttClient.on('end', () => {
+            console.log('MQTT Connection ended');
+        });
+
+    } catch (error) {
+        console.error('FATAL ERROR initializing MQTT:', error);
+        console.error('Error stack:', error.stack);
+
+        if (statusDot) statusDot.classList.add('offline');
+        if (connectionText) connectionText.textContent = 'MQTT Init Failed';
+
+        showNotification(
+            '❌ MQTT Error',
+            'Gagal inisialisasi MQTT: ' + error.message + '\nCek browser console (F12)',
+            'error',
+            5000
+        );
+    }
+}
+
+// Handle incoming MQTT messages
+function handleMQTTMessage(topic, message) {
+    console.log('📨 MQTT MESSAGE RECEIVED');
+    console.log('Topic:', topic);
+    console.log('Raw message:', message.toString());
+
+    try {
+        const payload = JSON.parse(message.toString());
+        console.log('Parsed payload:', payload);
+
+        // Route message ke handler yang sesuai
+        switch(topic) {
+            case MQTT_TOPIC_SENSOR:
+                console.log('→ Handling: SENSOR status');
+                updateSensorStatus(payload);
+                break;
+            case MQTT_TOPIC_COUNTER:
+                console.log('→ Handling: COUNTER status');
+                updateCounterStatus(payload);
+                break;
+            case MQTT_TOPIC_COUNTER_EVENT:
+                console.log('→ Handling: COUNTER EVENT');
+                handleCounterEvent(payload);
+                break;
+            case MQTT_TOPIC_MOTOR:
+                console.log('→ Handling: MOTOR status');
+                updateMotorStatus(payload);
+                break;
+            case MQTT_TOPIC_SERVO:
+                console.log('→ Handling: SERVO status');
+                updateServoStatus(payload);
+                break;
+            case MQTT_TOPIC_DEBUG:
+                console.log('→ Handling: DEBUG info');
+                updateDebugInfo(payload);
+                break;
+            case MQTT_TOPIC_STATUS:
+                console.log('→ Handling: STATUS');
+                if (payload.connected === true) {
+                    console.log('✓ ESP32 is ONLINE');
+                } else if (payload.connected === false) {
+                    console.log('✗ ESP32 is OFFLINE');
+                    showNotification(
+                        '⚠️ ESP32 Offline',
+                        'ESP32 device terputus',
+                        'warning',
+                        3000
+                    );
+                }
+                break;
+            default:
+                console.log('⚠️ Unknown topic:', topic);
+        }
+    } catch (error) {
+        console.error('✗✗✗ ERROR parsing MQTT message ✗✗✗');
+        console.error('Topic:', topic);
+        console.error('Message:', message.toString());
+        console.error('Error:', error.message);
+        console.error('Stack:', error.stack);
+    }
+}
+
+// Update sensor status di UI
+function updateSensorStatus(data) {
+    const irUpIndicator = document.getElementById('irUpIndicator');
+    const irDownIndicator = document.getElementById('irDownIndicator');
+    const irUpState = document.getElementById('irUpState');
+    const irDownState = document.getElementById('irDownState');
+
+    // Update IR UP (Bola Keluar)
+    if (data.ir_up !== undefined) {
+        sensorStatus.ir_up = data.ir_up;
+        if (data.ir_up) {
+            irUpIndicator.classList.add('active');
+            irUpState.textContent = 'DETECTED';
+            irUpState.classList.add('detected');
+        } else {
+            irUpIndicator.classList.remove('active');
+            irUpState.textContent = 'CLEAR';
+            irUpState.classList.remove('detected');
+        }
+    }
+
+    // Update IR DOWN (Bola Masuk)
+    if (data.ir_down !== undefined) {
+        sensorStatus.ir_down = data.ir_down;
+        if (data.ir_down) {
+            irDownIndicator.classList.add('active');
+            irDownState.textContent = 'DETECTED';
+            irDownState.classList.add('detected');
+        } else {
+            irDownIndicator.classList.remove('active');
+            irDownState.textContent = 'CLEAR';
+            irDownState.classList.remove('detected');
+        }
+    }
+}
+
+// Update counter status di UI
+function updateCounterStatus(data) {
+    if (data.counter !== undefined) {
+        sensorStatus.counter = data.counter;
+    }
+    if (data.balls_remaining !== undefined) {
+        ballsRemaining = data.balls_remaining;
+        ballsRemainingDisplay.textContent = ballsRemaining;
+
+        // Update total balls count display
+        const totalBallsCount = document.getElementById('totalBallsCount');
+        if (totalBallsCount && data.max_balls !== undefined) {
+            totalBallsCount.textContent = data.max_balls;
+        }
+    }
+
+    // Update selected count jika ada
+    if (data.selected_count !== undefined) {
+        selectedBallCount = data.selected_count;
+    }
+}
+
+// Handle counter events (bola masuk/keluar)
+function handleCounterEvent(data) {
+    console.log('Counter Event:', data);
+
+    const ballInDisplay = document.getElementById('ballInDisplay');
+    const ballOutDisplay = document.getElementById('ballOutDisplay');
+    const ballsInCountDisplay = document.getElementById('ballsInCount');
+    const ballsOutCountDisplay = document.getElementById('ballsOutCount');
+
+    // Update sisa bola
+    if (data.balls_remaining !== undefined) {
+        ballsRemaining = data.balls_remaining;
+        ballsRemainingDisplay.textContent = ballsRemaining;
+
+        // Highlight effect pada sisa bola
+        ballsRemainingDisplay.style.transform = 'scale(1.5)';
+        ballsRemainingDisplay.style.color = '#4CAF50';
+        setTimeout(() => {
+            ballsRemainingDisplay.style.transform = 'scale(1)';
+            ballsRemainingDisplay.style.color = '';
+        }, 500);
+    }
+
+    // Tampilkan notifikasi berdasarkan event
+    if (data.event === 'ball_in') {
+        // Bola masuk (IR IN terdeteksi)
+        ballsInCount++;
+        if (ballsInCountDisplay) {
+            ballsInCountDisplay.textContent = ballsInCount;
+        }
+
+        // Tampilkan display bola masuk
+        if (ballInDisplay) {
+            ballInDisplay.style.display = 'flex';
+            setTimeout(() => {
+                ballInDisplay.style.display = 'none';
+            }, 2000);
+        }
+
+        showNotification(
+            '✅ Bola Masuk',
+            `Sisa bola: ${data.new_count}/${data.max_balls}\n${data.message}`,
+            'success',
+            3000
+        );
+    }
+    else if (data.event === 'ball_out') {
+        // Bola keluar (IR OUT terdeteksi atau FIRE command)
+        ballsOutCount++;
+        autoModeBallsDispensed++;
+        if (ballsOutCountDisplay) {
+            ballsOutCountDisplay.textContent = ballsOutCount;
+        }
+
+        // Tampilkan display bola keluar
+        if (ballOutDisplay) {
+            ballOutDisplay.style.display = 'flex';
+            setTimeout(() => {
+                ballOutDisplay.style.display = 'none';
+            }, 2000);
+        }
+
+        // Update progress jika auto mode running
+        if (autoModeRunning) {
+            updateAutoModeInfo();
+
+            // Cek jika auto mode selesai
+            if (autoModeBallsDispensed >= autoModeTargetBalls) {
+                // Auto mode selesai
+                setTimeout(() => {
+                    autoModeComplete();
+                }, 1000);
+            }
+        }
+
+        showNotification(
+            '📤 Bola Keluar',
+            `Sisa bola: ${data.new_count}/${data.max_balls}\n${data.message}\nServo: 90° → 180° → 90°`,
+            'info',
+            3000
+        );
+    }
+    else if (data.event === 'auto_complete') {
+        // Auto mode selesai dari ESP32
+        autoModeComplete();
+    }
+    else if (data.event === 'max_reached') {
+        showNotification(
+            '⚠️ Penuh',
+            'Maksimal 9 bola! Tidak bisa menambah lagi.',
+            'warning',
+            3000
+        );
+    }
+    else if (data.event === 'empty') {
+        // Stop auto mode jika bola habis
+        if (autoModeRunning) {
+            stopAutoMode();
+        }
+
+        showNotification(
+            '❌ Bola Habis',
+            'Tidak ada bola tersisa. Silakan reset!',
+            'error',
+            4000
+        );
+    }
+    else if (data.event === 'reset') {
+        // Reset counter
+        ballsInCount = 0;
+        ballsOutCount = 0;
+        if (ballsInCountDisplay) ballsInCountDisplay.textContent = '0';
+        if (ballsOutCountDisplay) ballsOutCountDisplay.textContent = '0';
+
+        // Stop auto mode jika running
+        if (autoModeRunning) {
+            stopAutoMode();
+        }
+
+        showNotification(
+            '🔄 Reset Berhasil',
+            `Counter direset ke ${data.new_count} bola`,
+            'success',
+            3000
+        );
+    }
+}
+
+// Auto mode complete handler
+function autoModeComplete() {
+    if (!autoModeRunning) return;
+
+    console.log('Auto mode selesai!');
+
+    // Update state
+    stopAutoMode();
+
+    // UI Update
+    if (isAutoMode) {
+        autoStartBtn.style.display = 'block';
+    }
+    stopBtn.style.display = 'none';
+    machineStatusDisplay.textContent = 'Selesai';
+    isRunning = false;
+
+    // Show notification
+    showNotification(
+        '✅ Mode Otomatis Selesai',
+        `Berhasil mengeluarkan ${autoModeBallsDispensed} bola!`,
+        'success',
+        4000
+    );
+
+    // Reset machine status setelah 3 detik
+    setTimeout(() => {
+        machineStatusDisplay.textContent = 'Siap';
+    }, 3000);
+}
+
+// Update motor status di UI
+function updateMotorStatus(data) {
+    const motorStatusDisplay = document.getElementById('motorStatus');
+
+    if (data.active !== undefined) {
+        sensorStatus.motor_active = data.active;
+        if (data.active) {
+            motorStatusDisplay.textContent = 'ON';
+            motorStatusDisplay.classList.add('active');
+        } else {
+            motorStatusDisplay.textContent = 'OFF';
+            motorStatusDisplay.classList.remove('active');
+        }
+    }
+}
+
+// Update servo status di UI
+function updateServoStatus(data) {
+    const servoStatusDisplay = document.getElementById('servoStatus');
+
+    if (data.position !== undefined) {
+        sensorStatus.servo_position = data.position;
+        servoStatusDisplay.textContent = data.position + '°';
+    }
+}
+
+// Update debug info
+function updateDebugInfo(data) {
+    // Debug info bisa ditampilkan di console atau UI tambahan
+    console.log('WiFi RSSI:', data.wifi_rssi, 'dBm');
+    console.log('Free Heap:', data.free_heap, 'bytes');
+    console.log('Uptime:', data.uptime, 'seconds');
+}
+
+// Publish MQTT message ke ESP32
+function publishMQTT(topic, message) {
+    if (mqttClient && mqttConnected) {
+        mqttClient.publish(topic, message);
+        console.log('MQTT Publish [' + topic + ']:', message);
+    } else {
+        console.warn('MQTT tidak terhubung, tidak dapat publish');
+        showNotification(
+            '⚠️ MQTT Tidak Terhubung',
+            'Tidak dapat mengirim perintah ke ESP32',
+            'warning',
+            3000
+        );
+    }
+}
+
+// ===========================
+// END MQTT FUNCTIONS
+// ===========================
+
+// Check connection (MQTT based)
+async function checkConnection() {
+    if (!statusDot || !connectionText) return;
+
+    if (mqttConnected) {
+        statusDot.classList.remove('offline');
+        connectionText.textContent = 'Terhubung ke Device';
+    } else {
+        statusDot.classList.add('offline');
+        connectionText.textContent = 'Offline - Cek Koneksi';
+    }
+}
+
+// Check connection setiap 5 detik
+setInterval(checkConnection, 5000);
+
+// Initialize
+function init() {
+    console.log('Initializing application...');
+
+    // Update distance buttons dengan saved PWM values
+    updateDistanceButtons();
+
+    // Set first distance button as active (60cm)
+    if (distanceBtns.length > 0) {
+        distanceBtns[0].classList.add('active');
+        selectedPWM = pwmSettings[60];
+    }
+
+    // Set initial display values
+    if (ballCountValue) ballCountValue.textContent = selectedBallCount;
+    if (selectedBallsDisplay) selectedBallsDisplay.textContent = selectedBallCount + ' Bola';
+    if (selectedDistanceDisplay) selectedDistanceDisplay.textContent = selectedDistance + ' cm';
+    if (ballsRemainingDisplay) ballsRemainingDisplay.textContent = ballsRemaining;
+    if (modeDisplay) modeDisplay.textContent = 'Manual'; // Default mode
+
+    // Set initial slider gradient
+    if (ballCountSlider) updateSliderGradient(ballCountSlider);
+
+    // Sembunyikan card jumlah bola di awal (mode manual default)
+    const ballCountCard = document.getElementById('ballCountCard');
+    if (ballCountCard) {
+        ballCountCard.style.display = 'none';
+    }
+
+    // Sembunyikan row target bola di awal
+    if (targetBallsRow) {
+        targetBallsRow.style.display = 'none';
+    }
+
+    // Log initial element status
+    console.log('Element check:');
+    console.log('  - motorStatusDisplay:', motorStatusDisplay ? '✓' : '✗');
+    console.log('  - servoStatusDisplay:', servoStatusDisplay ? '✓' : '✗');
+    console.log('  - machineStatusDisplay:', machineStatusDisplay ? '✓' : '✗');
+
+    // Initialize MQTT connection
+    console.log('DOM ready, starting MQTT connection...');
+    initMQTT();
+}
+
+// Tunggu DOM sepenuhnya loaded sebelum menjalankan init()
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+} else {
+    // DOM sudah ready
+    init();
+}
