@@ -1,11 +1,12 @@
 // ===========================
 // MQTT CONFIGURATION
 // ===========================
-// Menggunakan HiveMQ Public Broker
-// Sesuai dengan firmware ESP32 (broker.hivemq.com:1883)
+// Menggunakan EMQX Public Broker (Gratis & Support WSS)
+// ESP32: broker.emqx.io:1883 (MQTT)
+// Web: broker.emqx.io:8084 (WebSocket Secure)
 
-const MQTT_BROKER = "broker.hivemq.com";
-const MQTT_PORT = 8000;  // WebSocket port (ws://)
+const MQTT_BROKER = "broker.emqx.io";
+const MQTT_PORT = 8084;  // WebSocket Secure port (wss://)
 const MQTT_USERNAME = "";  // Public broker tidak memerlukan username
 const MQTT_PASSWORD = "";  // Public broker tidak memerlukan password
 
@@ -562,12 +563,12 @@ saveCalibrateBtn.addEventListener('click', () => {
 // Initialize MQTT Connection
 function initMQTT() {
     console.log('='.repeat(60));
-    console.log('INIT MQTT CONNECTION (HiveMQ Public Broker)');
+    console.log('INIT MQTT CONNECTION (EMQX Public Broker)');
     console.log('='.repeat(60));
     console.log('MQTT Broker:', MQTT_BROKER);
     console.log('MQTT Port:', MQTT_PORT);
     console.log('MQTT Client ID:', MQTT_CLIENT_ID);
-    console.log('MQTT Protocol: WebSocket (ws://)');
+    console.log('MQTT Protocol: WebSocket Secure (wss://)');
 
     // Safety check untuk elemen DOM
     if (!connectionText || !statusDot) {
@@ -582,11 +583,11 @@ function initMQTT() {
     statusDot.classList.remove('offline');
     statusDot.style.background = '#FFA726'; // Orange untuk connecting
 
-    // WebSocket URL untuk HiveMQ Public Broker
-    const connectUrl = `ws://${MQTT_BROKER}:${MQTT_PORT}/mqtt`;
+    // WebSocket URL untuk EMQX Public Broker
+    const connectUrl = `wss://${MQTT_BROKER}:${MQTT_PORT}/mqtt`;
 
     console.log('Connect URL:', connectUrl);
-    console.log('Attempting connection to HiveMQ Public Broker...');
+    console.log('Attempting connection to EMQX Public Broker...');
 
     try {
         mqttClient = mqtt.connect(connectUrl, {
@@ -638,7 +639,7 @@ function initMQTT() {
 
             showNotification(
                 '📡 MQTT Terhubung',
-                'Berhasil terhubung ke HiveMQ Public Broker!\nBroker: ' + MQTT_BROKER + '\nPort: 8000 (WebSocket)\nSiap menerima data dari ESP32',
+                'Berhasil terhubung ke EMQX Public Broker!\nBroker: ' + MQTT_BROKER + '\nPort: 8084 (WebSocket Secure)\nSiap menerima data dari ESP32',
                 'success',
                 3000
             );
@@ -1083,7 +1084,7 @@ setInterval(checkConnection, 5000);
 function init() {
     console.log('Initializing application...');
     console.log('System behavior: Count balls IN (0 → 9), count balls OUT');
-    console.log('MQTT Broker: HiveMQ Public Broker (broker.hivemq.cloud)');
+    console.log('MQTT Broker: EMQX Public Broker (broker.emqx.io)');
 
     // Update distance buttons dengan saved PWM values
     updateDistanceButtons();
@@ -1121,8 +1122,8 @@ function init() {
     console.log('  - servoStatusDisplay:', servoStatusDisplay ? '✓' : '✗');
     console.log('  - machineStatusDisplay:', machineStatusDisplay ? '✓' : '✗');
     console.log('Initial balls remaining:', ballsRemaining, '(sesuai INITIAL_BALLS di firmware)');
-    console.log('HiveMQ Public Broker:', MQTT_BROKER);
-    console.log('WebSocket Port:', MQTT_PORT);
+    console.log('EMQX Public Broker:', MQTT_BROKER);
+    console.log('WebSocket Secure Port:', MQTT_PORT);
 
     // Initialize MQTT connection
     console.log('DOM ready, starting MQTT connection...');
