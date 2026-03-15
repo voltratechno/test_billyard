@@ -1,8 +1,14 @@
 // ===========================
 // MQTT CONFIGURATION
 // ===========================
+// Menggunakan HiveMQ Public Broker (tanpa authentication)
+// Sesuai dengan firmware ESP32
+
 const MQTT_BROKER = "broker.hivemq.com";
-const MQTT_PORT = 8000; // WebSocket port (tanpa SSL)
+const MQTT_PORT = 8000;  // WebSocket port untuk HiveMQ Public Broker
+const MQTT_USERNAME = null;  // Public broker tidak perlu username
+const MQTT_PASSWORD = null;  // Public broker tidak perlu password
+
 const MQTT_CLIENT_ID = "web_billiard_" + Math.random().toString(16).substring(2, 10);
 
 // MQTT Topics
@@ -315,7 +321,7 @@ manualFireBtn.addEventListener('click', () => {
     // Notifikasi
     showNotification(
         '🎱 Mengeluarkan Bola',
-        `Sisa bola: ${ballsRemaining}/${totalBalls}\nJarak: ${selectedDistance} cm\nPWM: ${selectedPWM}\nServo: 90° → 180° → 90°`,
+        `Sisa bola: ${ballsRemaining}/${totalBalls}\nJarak: ${selectedDistance} cm\nPWM: ${selectedPWM}\nMotor berhenti saat IR OUT terdeteksi`,
         'info',
         3000
     );
@@ -368,7 +374,7 @@ autoStartBtn.addEventListener('click', () => {
     // Show notification
     showNotification(
         '🔄 Mode Otomatis Dimulai',
-        `Mengeluarkan ${selectedBallCount} bola\nJarak: ${selectedDistance} cm\nPWM: ${selectedPWM}\nServo: 90° → 180° → 90°`,
+        `Mengeluarkan ${selectedBallCount} bola\nJarak: ${selectedDistance} cm\nPWM: ${selectedPWM}\nSetiap bola berhenti saat IR OUT terdeteksi`,
         'info',
         4000
     );
@@ -552,12 +558,12 @@ saveCalibrateBtn.addEventListener('click', () => {
 // Initialize MQTT Connection
 function initMQTT() {
     console.log('='.repeat(60));
-    console.log('INIT MQTT CONNECTION');
+    console.log('INIT MQTT CONNECTION (HiveMQ Public Broker)');
     console.log('='.repeat(60));
     console.log('MQTT Broker:', MQTT_BROKER);
     console.log('MQTT Port:', MQTT_PORT);
     console.log('MQTT Client ID:', MQTT_CLIENT_ID);
-    console.log('MQTT Protocol: WebSocket (ws://) - Tanpa SSL');
+    console.log('MQTT Protocol: WebSocket (ws://) - No Auth Required');
 
     // Safety check untuk elemen DOM
     if (!connectionText || !statusDot) {
@@ -573,22 +579,30 @@ function initMQTT() {
     statusDot.style.background = '#FFA726'; // Orange untuk connecting
 
     // WebSocket URL untuk HiveMQ Public Broker
-    // Menggunakan ws:// (tanpa SSL) untuk port 8000
     const connectUrl = `ws://${MQTT_BROKER}:${MQTT_PORT}/mqtt`;
 
     console.log('Connect URL:', connectUrl);
     console.log('Attempting connection...');
 
     try {
-        mqttClient = mqtt.connect(connectUrl, {
+        // Build connection options
+        const connectOptions = {
             clientId: MQTT_CLIENT_ID,
             clean: true,
-            connectTimeout: 10000,    // 10 detik timeout
-            reconnectPeriod: 5000,    // Reconnect setiap 5 detik
+            connectTimeout: 30 * 1000,      // 30 detik timeout
+            reconnectPeriod: 5 * 1000,      // Reconnect 5 detik
             keepalive: 60,
             protocolId: 'MQTT',
-            protocolVersion: 4        // MQTT 3.1.1
-        });
+            protocolVersion: 4              // MQTT 3.1.1
+        };
+
+        // Hanya tambahkan username/password jika ada
+        if (MQTT_USERNAME && MQTT_PASSWORD) {
+            connectOptions.username = MQTT_USERNAME;
+            connectOptions.password = MQTT_PASSWORD;
+        }
+
+        mqttClient = mqtt.connect(connectUrl, connectOptions);
 
         // Connection successful
         mqttClient.on('connect', () => {
@@ -629,7 +643,7 @@ function initMQTT() {
 
             showNotification(
                 '📡 MQTT Terhubung',
-                'Berhasil terhubung ke HiveMQ Public Broker!\nPort: 8000 (WebSocket)\nSiap menerima data dari ESP32',
+                'Berhasil terhubung ke HiveMQ Public Broker!\nBroker: broker.hivemq.com:8000\nSiap menerima data dari ESP32',
                 'success',
                 3000
             );
@@ -642,13 +656,26 @@ function initMQTT() {
             console.error('Error message:', err.message);
             console.error('Full error:', err);
 
+            // Cek jenis error umum
+            if (err.message.includes('ECONNREFUSED')) {
+                console.error('❌ CONNECTION REFUSED');
+                console.error('Cek broker dan port!');
+                console.error('Pastikan ESP32 juga terhubung ke broker yang sama');
+            } else if (err.message.includes('authentication')) {
+                console.error('❌ AUTHENTICATION FAILED');
+                console.error('Username atau password salah!');
+            } else if (err.message.includes('timeout')) {
+                console.error('❌ CONNECTION TIMEOUT');
+                console.error('Cek koneksi internet');
+            }
+
             mqttConnected = false;
             if (statusDot) statusDot.classList.add('offline');
             if (connectionText) connectionText.textContent = 'MQTT Error - Cek Console';
 
             showNotification(
                 '❌ MQTT Error',
-                'Gagal terhubung: ' + err.message + '\nCek browser console (F12)',
+                'Gagal terhubung: ' + err.message + '\nPastikan ESP32 terhubung ke broker yang sama',
                 'error',
                 5000
             );
