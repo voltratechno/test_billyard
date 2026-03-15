@@ -1,13 +1,13 @@
 // ===========================
 // MQTT CONFIGURATION
 // ===========================
-// Menggunakan HiveMQ Public Broker (tanpa authentication)
+// Menggunakan HiveMQ Cloud dengan SSL/TLS
 // Sesuai dengan firmware ESP32
 
-const MQTT_BROKER = "broker.hivemq.com";
-const MQTT_PORT = 8000;  // WebSocket port untuk HiveMQ Public Broker
-const MQTT_USERNAME = null;  // Public broker tidak perlu username
-const MQTT_PASSWORD = null;  // Public broker tidak perlu password
+const MQTT_BROKER = "aa2a0303783540c5b577ea993f589a63.s1.eu.hivemq.cloud";
+const MQTT_PORT = 8884;  // WebSocket Secure port untuk HiveMQ Cloud
+const MQTT_USERNAME = "Omanpublishsubscribe";
+const MQTT_PASSWORD = "Oman12344321";
 
 const MQTT_CLIENT_ID = "web_billiard_" + Math.random().toString(16).substring(2, 10);
 
@@ -39,8 +39,8 @@ let selectedDistance = 60;
 let selectedPWM = 80;
 let isRunning = false;
 let isAutoMode = false; // false = manual, true = auto
-let totalBalls = 9;
-let ballsRemaining = 9;
+let totalBalls = 9;     // Maksimal bola (MAX_BALLS di firmware)
+let ballsRemaining = 0; // Sisa bola saat ini (sesuai INITIAL_BALLS = 0 di firmware)
 let ballsInCount = 0;
 let ballsOutCount = 0;
 let autoModeRunning = false;
@@ -267,8 +267,8 @@ function updateSliderGradient(slider) {
 manualFireBtn.addEventListener('click', () => {
     if (ballsRemaining <= 0) {
         showNotification(
-            'Bola Habis!',
-            'Semua bola sudah dikeluarkan. Silakan reset untuk memulai lagi.',
+            '⚠️ Tidak Ada Bola',
+            'Masukkan bola terlebih dahulu (0 → 9)\nGunakan IR IN untuk menghitung bola masuk',
             'warning',
             4000
         );
@@ -288,13 +288,8 @@ manualFireBtn.addEventListener('click', () => {
     // Kirim perintah ke ESP32 via MQTT
     console.log('Mengeluarkan bola:', {
         jarak: selectedDistance + ' cm',
-        pwm: selectedPWM,
-        durasi: '3 detik'
+        pwm: selectedPWM
     });
-
-    // Update counter lokal (immediate feedback)
-    ballsRemaining--;
-    ballsRemainingDisplay.textContent = ballsRemaining;
 
     // 1. Kirim perintah FIRE ke ESP32
     publishMQTT(MQTT_TOPIC_FIRE, 'FIRE');
@@ -315,13 +310,13 @@ manualFireBtn.addEventListener('click', () => {
     machineStatusDisplay.textContent = 'Mengeluarkan Bola...';
     isRunning = true;
 
-    // ESP32 akan menangani timing motor (3 detik) dan servo otomatis
-    // Update UI akan dilakukan via MQTT message dari ESP32
+    // ESP32 akan menangani dispensing dan update counter via MQTT
+    // UI akan diupdate otomatis dari pesan MQTT
 
     // Notifikasi
     showNotification(
         '🎱 Mengeluarkan Bola',
-        `Sisa bola: ${ballsRemaining}/${totalBalls}\nJarak: ${selectedDistance} cm\nPWM: ${selectedPWM}\nMotor berhenti saat IR OUT terdeteksi`,
+        `Jarak: ${selectedDistance} cm\nPWM: ${selectedPWM}\nMotor berhenti saat IR OUT terdeteksi`,
         'info',
         3000
     );
@@ -331,8 +326,8 @@ manualFireBtn.addEventListener('click', () => {
 autoStartBtn.addEventListener('click', () => {
     if (ballsRemaining <= 0) {
         showNotification(
-            'Bola Habis!',
-            'Semua bola sudah dikeluarkan. Silakan reset untuk memulai lagi.',
+            '⚠️ Tidak Ada Bola',
+            'Masukkan bola terlebih dahulu (0 → 9)\nGunakan IR IN untuk menghitung bola masuk',
             'warning',
             4000
         );
@@ -342,7 +337,7 @@ autoStartBtn.addEventListener('click', () => {
     if (selectedBallCount > ballsRemaining) {
         showNotification(
             '⚠️ Jumlah Bola Terlalu Banyak',
-            `Hanya tersisa ${ballsRemaining} bola. Kurangi jumlah bola atau reset.`,
+            `Hanya tersisa ${ballsRemaining} bola. Kurangi jumlah bola atau masukkan lebih banyak bola.`,
             'warning',
             4000
         );
@@ -423,11 +418,11 @@ function stopAutoMode() {
 
 // Reset button via MQTT
 resetBtn.addEventListener('click', () => {
-    if (!confirm('Reset jumlah bola ke 9?')) {
+    if (!confirm('Reset counter ke 0?')) {
         return;
     }
 
-    console.log('Reset bola...');
+    console.log('Reset counter...');
 
     // Stop auto mode jika running
     if (autoModeRunning) {
@@ -438,8 +433,17 @@ resetBtn.addEventListener('click', () => {
     publishMQTT(MQTT_TOPIC_RESET, 'RESET');
 
     // Update local state sementara (actual update akan dari ESP32 via MQTT)
-    ballsRemaining = 9;
+    ballsRemaining = 0;
+    ballsInCount = 0;
+    ballsOutCount = 0;
+
+    // Update displays
     ballsRemainingDisplay.textContent = ballsRemaining;
+    const ballsInCountDisplay = document.getElementById('ballsInCount');
+    const ballsOutCountDisplay = document.getElementById('ballsOutCount');
+    if (ballsInCountDisplay) ballsInCountDisplay.textContent = '0';
+    if (ballsOutCountDisplay) ballsOutCountDisplay.textContent = '0';
+
     machineStatusDisplay.textContent = 'Siap';
     isRunning = false;
 
@@ -453,7 +457,7 @@ resetBtn.addEventListener('click', () => {
     // Show notification
     showNotification(
         '🔄 Reset Berhasil',
-        `Jumlah bola direset ke ${ballsRemaining} bola`,
+        'Counter direset ke 0\nSiap menghitung bola masuk (0 → 9)',
         'success',
         3000
     );
@@ -558,12 +562,13 @@ saveCalibrateBtn.addEventListener('click', () => {
 // Initialize MQTT Connection
 function initMQTT() {
     console.log('='.repeat(60));
-    console.log('INIT MQTT CONNECTION (HiveMQ Public Broker)');
+    console.log('INIT MQTT CONNECTION (HiveMQ Cloud - SSL/TLS)');
     console.log('='.repeat(60));
     console.log('MQTT Broker:', MQTT_BROKER);
     console.log('MQTT Port:', MQTT_PORT);
     console.log('MQTT Client ID:', MQTT_CLIENT_ID);
-    console.log('MQTT Protocol: WebSocket (ws://) - No Auth Required');
+    console.log('MQTT Username:', MQTT_USERNAME);
+    console.log('MQTT Protocol: WebSocket Secure (wss://) with SSL/TLS');
 
     // Safety check untuk elemen DOM
     if (!connectionText || !statusDot) {
@@ -578,31 +583,25 @@ function initMQTT() {
     statusDot.classList.remove('offline');
     statusDot.style.background = '#FFA726'; // Orange untuk connecting
 
-    // WebSocket URL untuk HiveMQ Public Broker
-    const connectUrl = `ws://${MQTT_BROKER}:${MQTT_PORT}/mqtt`;
+    // WebSocket URL untuk HiveMQ Cloud dengan SSL/TLS
+    const connectUrl = `wss://${MQTT_BROKER}:${MQTT_PORT}/mqtt`;
 
     console.log('Connect URL:', connectUrl);
-    console.log('Attempting connection...');
+    console.log('Attempting connection with SSL/TLS...');
 
     try {
-        // Build connection options
-        const connectOptions = {
+        mqttClient = mqtt.connect(connectUrl, {
             clientId: MQTT_CLIENT_ID,
+            username: MQTT_USERNAME,
+            password: MQTT_PASSWORD,
             clean: true,
             connectTimeout: 30 * 1000,      // 30 detik timeout
             reconnectPeriod: 5 * 1000,      // Reconnect 5 detik
             keepalive: 60,
             protocolId: 'MQTT',
-            protocolVersion: 4              // MQTT 3.1.1
-        };
-
-        // Hanya tambahkan username/password jika ada
-        if (MQTT_USERNAME && MQTT_PASSWORD) {
-            connectOptions.username = MQTT_USERNAME;
-            connectOptions.password = MQTT_PASSWORD;
-        }
-
-        mqttClient = mqtt.connect(connectUrl, connectOptions);
+            protocolVersion: 4,             // MQTT 3.1.1
+            rejectUnauthorized: false        // Allow self-signed certificates
+        });
 
         // Connection successful
         mqttClient.on('connect', () => {
@@ -643,7 +642,7 @@ function initMQTT() {
 
             showNotification(
                 '📡 MQTT Terhubung',
-                'Berhasil terhubung ke HiveMQ Public Broker!\nBroker: broker.hivemq.com:8000\nSiap menerima data dari ESP32',
+                'Berhasil terhubung ke HiveMQ Cloud!\nBroker: ' + MQTT_BROKER + '\nPort: 8884 (WebSocket Secure)\nSiap menerima data dari ESP32',
                 'success',
                 3000
             );
@@ -660,13 +659,17 @@ function initMQTT() {
             if (err.message.includes('ECONNREFUSED')) {
                 console.error('❌ CONNECTION REFUSED');
                 console.error('Cek broker dan port!');
-                console.error('Pastikan ESP32 juga terhubung ke broker yang sama');
+                console.error('Pastikan broker URL dan port benar');
             } else if (err.message.includes('authentication')) {
                 console.error('❌ AUTHENTICATION FAILED');
                 console.error('Username atau password salah!');
+                console.error('Cek kredensial HiveMQ Cloud');
             } else if (err.message.includes('timeout')) {
                 console.error('❌ CONNECTION TIMEOUT');
                 console.error('Cek koneksi internet');
+            } else if (err.message.includes('SSL') || err.message.includes('certificate')) {
+                console.error('❌ SSL/TLS ERROR');
+                console.error('Masalah sertifikat SSL/TLS');
             }
 
             mqttConnected = false;
@@ -675,7 +678,7 @@ function initMQTT() {
 
             showNotification(
                 '❌ MQTT Error',
-                'Gagal terhubung: ' + err.message + '\nPastikan ESP32 terhubung ke broker yang sama',
+                'Gagal terhubung: ' + err.message + '\nCek kredensial HiveMQ Cloud',
                 'error',
                 5000
             );
@@ -899,7 +902,7 @@ function handleCounterEvent(data) {
 
         showNotification(
             '✅ Bola Masuk',
-            `Sisa bola: ${data.new_count}/${data.max_balls}\n${data.message}`,
+            `Counter: ${data.new_count}/${data.max_balls}\nMenghitung: 0 → 9\n${data.message}`,
             'success',
             3000
         );
@@ -935,7 +938,7 @@ function handleCounterEvent(data) {
 
         showNotification(
             '📤 Bola Keluar',
-            `Sisa bola: ${data.new_count}/${data.max_balls}\n${data.message}\nServo: 90° → 180° → 90°`,
+            `Counter: ${data.new_count}/${data.max_balls}\nMotor berhenti saat IR OUT terdeteksi`,
             'info',
             3000
         );
@@ -959,8 +962,8 @@ function handleCounterEvent(data) {
         }
 
         showNotification(
-            '❌ Bola Habis',
-            'Tidak ada bola tersisa. Silakan reset!',
+            '❌ Tidak Ada Bola',
+            'Counter = 0\nMasukkan bola (0 → 9) menggunakan IR IN',
             'error',
             4000
         );
@@ -1090,6 +1093,8 @@ setInterval(checkConnection, 5000);
 // Initialize
 function init() {
     console.log('Initializing application...');
+    console.log('System behavior: Count balls IN (0 → 9), count balls OUT');
+    console.log('MQTT Broker: HiveMQ Cloud (SSL/TLS)');
 
     // Update distance buttons dengan saved PWM values
     updateDistanceButtons();
@@ -1126,6 +1131,9 @@ function init() {
     console.log('  - motorStatusDisplay:', motorStatusDisplay ? '✓' : '✗');
     console.log('  - servoStatusDisplay:', servoStatusDisplay ? '✓' : '✗');
     console.log('  - machineStatusDisplay:', machineStatusDisplay ? '✓' : '✗');
+    console.log('Initial balls remaining:', ballsRemaining, '(sesuai INITIAL_BALLS di firmware)');
+    console.log('HiveMQ Cloud Broker:', MQTT_BROKER);
+    console.log('WebSocket Secure Port:', MQTT_PORT);
 
     // Initialize MQTT connection
     console.log('DOM ready, starting MQTT connection...');
