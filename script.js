@@ -1,13 +1,13 @@
 // ===========================
 // MQTT CONFIGURATION
 // ===========================
-// Menggunakan HiveMQ Cloud dengan SSL/TLS
-// Sesuai dengan firmware ESP32
+// Menggunakan HiveMQ Public Broker
+// Sesuai dengan firmware ESP32 (broker.hivemq.com:1883)
 
-const MQTT_BROKER = "aa2a0303783540c5b577ea993f589a63.s1.eu.hivemq.cloud";
-const MQTT_PORT = 8884;  // WebSocket Secure port untuk HiveMQ Cloud
-const MQTT_USERNAME = "Omanpublishsubscribe";
-const MQTT_PASSWORD = "Oman12344321";
+const MQTT_BROKER = "broker.hivemq.com";
+const MQTT_PORT = 8000;  // WebSocket port (ws://)
+const MQTT_USERNAME = "";  // Public broker tidak memerlukan username
+const MQTT_PASSWORD = "";  // Public broker tidak memerlukan password
 
 const MQTT_CLIENT_ID = "web_billiard_" + Math.random().toString(16).substring(2, 10);
 
@@ -52,7 +52,7 @@ let sensorStatus = {
     ir_up: false,
     ir_down: false,
     motor_active: false,
-    servo_position: 0,
+    servo_position: 90,  // Servo mulai pada posisi tutup (90°)
     counter: 0
 };
 
@@ -562,13 +562,12 @@ saveCalibrateBtn.addEventListener('click', () => {
 // Initialize MQTT Connection
 function initMQTT() {
     console.log('='.repeat(60));
-    console.log('INIT MQTT CONNECTION (HiveMQ Cloud - SSL/TLS)');
+    console.log('INIT MQTT CONNECTION (HiveMQ Public Broker)');
     console.log('='.repeat(60));
     console.log('MQTT Broker:', MQTT_BROKER);
     console.log('MQTT Port:', MQTT_PORT);
     console.log('MQTT Client ID:', MQTT_CLIENT_ID);
-    console.log('MQTT Username:', MQTT_USERNAME);
-    console.log('MQTT Protocol: WebSocket Secure (wss://) with SSL/TLS');
+    console.log('MQTT Protocol: WebSocket (ws://)');
 
     // Safety check untuk elemen DOM
     if (!connectionText || !statusDot) {
@@ -583,24 +582,21 @@ function initMQTT() {
     statusDot.classList.remove('offline');
     statusDot.style.background = '#FFA726'; // Orange untuk connecting
 
-    // WebSocket URL untuk HiveMQ Cloud dengan SSL/TLS
-    const connectUrl = `wss://${MQTT_BROKER}:${MQTT_PORT}/mqtt`;
+    // WebSocket URL untuk HiveMQ Public Broker
+    const connectUrl = `ws://${MQTT_BROKER}:${MQTT_PORT}/mqtt`;
 
     console.log('Connect URL:', connectUrl);
-    console.log('Attempting connection with SSL/TLS...');
+    console.log('Attempting connection to HiveMQ Public Broker...');
 
     try {
         mqttClient = mqtt.connect(connectUrl, {
             clientId: MQTT_CLIENT_ID,
-            username: MQTT_USERNAME,
-            password: MQTT_PASSWORD,
             clean: true,
             connectTimeout: 30 * 1000,      // 30 detik timeout
             reconnectPeriod: 5 * 1000,      // Reconnect 5 detik
             keepalive: 60,
             protocolId: 'MQTT',
-            protocolVersion: 4,             // MQTT 3.1.1
-            rejectUnauthorized: false        // Allow self-signed certificates
+            protocolVersion: 4              // MQTT 3.1.1
         });
 
         // Connection successful
@@ -642,7 +638,7 @@ function initMQTT() {
 
             showNotification(
                 '📡 MQTT Terhubung',
-                'Berhasil terhubung ke HiveMQ Cloud!\nBroker: ' + MQTT_BROKER + '\nPort: 8884 (WebSocket Secure)\nSiap menerima data dari ESP32',
+                'Berhasil terhubung ke HiveMQ Public Broker!\nBroker: ' + MQTT_BROKER + '\nPort: 8000 (WebSocket)\nSiap menerima data dari ESP32',
                 'success',
                 3000
             );
@@ -660,16 +656,9 @@ function initMQTT() {
                 console.error('❌ CONNECTION REFUSED');
                 console.error('Cek broker dan port!');
                 console.error('Pastikan broker URL dan port benar');
-            } else if (err.message.includes('authentication')) {
-                console.error('❌ AUTHENTICATION FAILED');
-                console.error('Username atau password salah!');
-                console.error('Cek kredensial HiveMQ Cloud');
             } else if (err.message.includes('timeout')) {
                 console.error('❌ CONNECTION TIMEOUT');
                 console.error('Cek koneksi internet');
-            } else if (err.message.includes('SSL') || err.message.includes('certificate')) {
-                console.error('❌ SSL/TLS ERROR');
-                console.error('Masalah sertifikat SSL/TLS');
             }
 
             mqttConnected = false;
@@ -678,7 +667,7 @@ function initMQTT() {
 
             showNotification(
                 '❌ MQTT Error',
-                'Gagal terhubung: ' + err.message + '\nCek kredensial HiveMQ Cloud',
+                'Gagal terhubung: ' + err.message + '\nPeriksa koneksi internet',
                 'error',
                 5000
             );
@@ -1094,7 +1083,7 @@ setInterval(checkConnection, 5000);
 function init() {
     console.log('Initializing application...');
     console.log('System behavior: Count balls IN (0 → 9), count balls OUT');
-    console.log('MQTT Broker: HiveMQ Cloud (SSL/TLS)');
+    console.log('MQTT Broker: HiveMQ Public Broker (broker.hivemq.cloud)');
 
     // Update distance buttons dengan saved PWM values
     updateDistanceButtons();
@@ -1132,8 +1121,8 @@ function init() {
     console.log('  - servoStatusDisplay:', servoStatusDisplay ? '✓' : '✗');
     console.log('  - machineStatusDisplay:', machineStatusDisplay ? '✓' : '✗');
     console.log('Initial balls remaining:', ballsRemaining, '(sesuai INITIAL_BALLS di firmware)');
-    console.log('HiveMQ Cloud Broker:', MQTT_BROKER);
-    console.log('WebSocket Secure Port:', MQTT_PORT);
+    console.log('HiveMQ Public Broker:', MQTT_BROKER);
+    console.log('WebSocket Port:', MQTT_PORT);
 
     // Initialize MQTT connection
     console.log('DOM ready, starting MQTT connection...');
