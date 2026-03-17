@@ -352,6 +352,98 @@ body {
     transform: scale(0.98);
 }
 
+/* Timer Input Container */
+.timer-input-container {
+    padding: 5px 0;
+}
+
+.timer-input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.timer-input-group label {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #1565C0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.timer-input {
+    width: 100%;
+    padding: 14px 16px;
+    border: 2px solid #E3F2FD;
+    border-radius: 12px;
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: #0D47A1;
+    text-align: center;
+    transition: all 0.2s ease;
+    background: #F8F9FA;
+}
+
+.timer-input:focus {
+    outline: none;
+    border-color: #1976D2;
+    box-shadow: 0 0 0 3px rgba(25, 118, 210, 0.1);
+    background: white;
+}
+
+.timer-presets {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+}
+
+.timer-preset-btn {
+    padding: 10px 8px;
+    border: 2px solid #E3F2FD;
+    border-radius: 10px;
+    background: white;
+    color: #1565C0;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.timer-preset-btn:hover {
+    background: #E3F2FD;
+    border-color: #1976D2;
+}
+
+.timer-preset-btn:active {
+    transform: scale(0.95);
+    background: #1976D2;
+    color: white;
+    border-color: #1976D2;
+}
+
+.timer-current-display {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: linear-gradient(135deg, #E3F2FD, #BBDEFB);
+    border-radius: 12px;
+    border: 2px solid #1976D2;
+}
+
+.timer-label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #1565C0;
+}
+
+.timer-value {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #0D47A1;
+}
+
 /* Modal */
 .modal {
     display: none;
@@ -1524,6 +1616,10 @@ input[type="range"]::-moz-range-thumb:active {
     margin-bottom: 12px;
 }
 
+.info-row:last-child {
+    margin-bottom: 0;
+}
+
 .info-row i {
     color: #1976D2;
     font-size: 1.1rem;
@@ -1538,6 +1634,7 @@ input[type="range"]::-moz-range-thumb:active {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    margin-top: 12px;
 }
 
 .progress-bar {
