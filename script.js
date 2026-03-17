@@ -37,7 +37,7 @@ let mqttConnected = false;
 // ===========================
 let selectedBallCount = 1;
 let selectedDistance = 60;
-let selectedPWM = 80;
+let selectedPWM = 200;
 let isRunning = false;
 let isAutoMode = false; // false = manual, true = auto
 let totalBalls = 9;     // Maksimal bola (MAX_BALLS di firmware)
@@ -47,6 +47,7 @@ let ballsOutCount = 0;
 let autoModeRunning = false;
 let autoModeTargetBalls = 0;
 let autoModeBallsDispensed = 0;
+let autoModeTimer = 2.0; // Timer periode dalam detik (default 2 detik) - TANPA BATAS
 
 // Sensor status from ESP32
 let sensorStatus = {
@@ -60,9 +61,9 @@ let sensorStatus = {
 // PWM Settings (disimpan di localStorage agar tidak hilang saat refresh)
 let pwmSettings = {
     60: 200,
-    90: 350,
-    120: 500,
-    150: 650
+    70: 275,
+    80: 350,
+    90: 425
 };
 
 // Load PWM settings dari localStorage
@@ -71,9 +72,18 @@ if (savedPWM) {
     pwmSettings = JSON.parse(savedPWM);
 }
 
+// Load timer setting dari localStorage
+const savedTimer = localStorage.getItem('autoModeTimer');
+if (savedTimer) {
+    autoModeTimer = parseFloat(savedTimer);
+}
+
 // Elements
 const ballCountSlider = document.getElementById('ballCountSlider');
 const ballCountValue = document.getElementById('ballCountValue');
+const timerInput = document.getElementById('timerInput');
+const timerValueDisplay = document.getElementById('timerValueDisplay');
+const timerCard = document.getElementById('timerCard');
 const manualModeBtn = document.getElementById('manualModeBtn');
 const autoModeBtn = document.getElementById('autoModeBtn');
 const modeInfo = document.getElementById('modeInfo');
@@ -93,6 +103,7 @@ const connectionText = document.getElementById('connectionText');
 const ballsRemainingDisplay = document.getElementById('ballsRemaining');
 const distanceBtns = document.querySelectorAll('.distance-btn');
 const notificationContainer = document.getElementById('notificationContainer');
+const autoTimerDisplay = document.getElementById('autoTimerDisplay');
 
 // Calibration Modal Elements
 const calibrateBtn = document.getElementById('calibrateBtn');
@@ -163,6 +174,7 @@ function setMode(isAuto) {
         autoStartBtn.style.display = 'block';
         autoModeInfo.style.display = 'block';
         ballCountCard.style.display = 'block'; // Tampilkan card jumlah bola
+        timerCard.style.display = 'block'; // Tampilkan card timer
         targetBallsRow.style.display = 'flex'; // Tampilkan row target bola
         modeDisplay.textContent = 'Otomatis';
         modeInfo.innerHTML = '<p><i class="fas fa-info-circle"></i> <strong>Otomatis:</strong> Aktif</p>';
@@ -176,6 +188,7 @@ function setMode(isAuto) {
         autoStartBtn.style.display = 'none';
         autoModeInfo.style.display = 'none';
         ballCountCard.style.display = 'none'; // Sembunyikan card jumlah bola
+        timerCard.style.display = 'none'; // Sembunyikan card timer
         targetBallsRow.style.display = 'none'; // Sembunyikan row target bola
         manualFireBtn.style.display = 'block';
         modeDisplay.textContent = 'Manual';
@@ -188,6 +201,11 @@ function setMode(isAuto) {
     }
 }
 
+// Helper function untuk format timer tanpa desimal jika bilangan bulat
+function formatTimer(value) {
+    return parseFloat(value.toFixed(1));
+}
+
 // Update auto mode info display
 function updateAutoModeInfo() {
     const autoBallCount = document.getElementById('autoBallCount');
@@ -197,6 +215,7 @@ function updateAutoModeInfo() {
 
     if (autoBallCount) autoBallCount.textContent = selectedBallCount;
     if (autoDistance) autoDistance.textContent = selectedDistance + ' cm';
+    if (autoTimerDisplay) autoTimerDisplay.textContent = formatTimer(autoModeTimer);
 
     // Update progress
     if (autoModeRunning) {
@@ -248,6 +267,63 @@ ballCountSlider.addEventListener('input', (e) => {
     ballCountValue.textContent = selectedBallCount;
     selectedBallsDisplay.textContent = selectedBallCount + ' Bola';
     updateSliderGradient(ballCountSlider);
+
+    // Update auto mode info jika dalam mode auto
+    if (isAutoMode) {
+        updateAutoModeInfo();
+    }
+});
+
+// Timer Input - FITUR TIMER BARU TANPA BATAS
+timerInput.addEventListener('input', (e) => {
+    const value = parseFloat(e.target.value);
+
+    // Validasi input
+    if (isNaN(value) || value <= 0) {
+        return; // Jangan update jika invalid
+    }
+
+    autoModeTimer = value;
+
+    // Update display
+    if (timerValueDisplay) {
+        timerValueDisplay.textContent = formatTimer(autoModeTimer) + ' detik';
+    }
+
+    // Simpan ke localStorage
+    localStorage.setItem('autoModeTimer', autoModeTimer);
+
+    // Update auto mode info jika dalam mode auto
+    if (isAutoMode) {
+        updateAutoModeInfo();
+    }
+});
+
+// Timer input blur event - validasi dan format
+timerInput.addEventListener('blur', (e) => {
+    let value = parseFloat(e.target.value);
+
+    // Validasi: harus lebih dari 0
+    if (isNaN(value) || value <= 0) {
+        value = 0.5; // Default minimum
+        showNotification(
+            '⚠️ Timer Tidak Valid',
+            'Timer harus lebih dari 0 detik. Diatur ke 0.5 detik.',
+            'warning',
+            3000
+        );
+    }
+
+    autoModeTimer = value;
+    e.target.value = value.toFixed(1);
+
+    // Update display
+    if (timerValueDisplay) {
+        timerValueDisplay.textContent = formatTimer(autoModeTimer) + ' detik';
+    }
+
+    // Simpan ke localStorage
+    localStorage.setItem('autoModeTimer', autoModeTimer);
 
     // Update auto mode info jika dalam mode auto
     if (isAutoMode) {
@@ -348,7 +424,8 @@ autoStartBtn.addEventListener('click', () => {
     console.log('Memulai mode otomatis:', {
         jumlah: selectedBallCount,
         jarak: selectedDistance + ' cm',
-        pwm: selectedPWM
+        pwm: selectedPWM,
+        timer: autoModeTimer + ' detik'
     });
 
     // Set auto mode state
@@ -356,10 +433,11 @@ autoStartBtn.addEventListener('click', () => {
     autoModeTargetBalls = selectedBallCount;
     autoModeBallsDispensed = 0;
 
-    // Publish MQTT commands - Kirim jumlah bola dalam JSON
+    // Publish MQTT commands - Kirim jumlah bola, timer, dan setting lainnya dalam JSON
     publishMQTT(MQTT_TOPIC_COMMAND, JSON.stringify({
         command: 'START_AUTO',
-        ballCount: selectedBallCount
+        ballCount: selectedBallCount,
+        timer: autoModeTimer
     }));
     publishMQTT(MQTT_TOPIC_DISTANCE, String(selectedDistance));
     publishMQTT(MQTT_TOPIC_PWM, String(selectedPWM));
@@ -370,7 +448,7 @@ autoStartBtn.addEventListener('click', () => {
     // Show notification
     showNotification(
         '🔄 Mode Otomatis Dimulai',
-        `Mengeluarkan ${selectedBallCount} bola\nJarak: ${selectedDistance} cm\nPWM: ${selectedPWM}\nSetiap bola berhenti saat IR OUT terdeteksi`,
+        `Mengeluarkan ${selectedBallCount} bola\nJarak: ${selectedDistance} cm\nPWM: ${selectedPWM}\nTimer periode: ${formatTimer(autoModeTimer)} detik/bola\nSetiap bola berhenti saat IR OUT terdeteksi`,
         'info',
         4000
     );
@@ -468,9 +546,9 @@ resetBtn.addEventListener('click', () => {
 calibrateBtn.addEventListener('click', () => {
     // Load current PWM values ke input fields
     document.getElementById('pwm60').value = pwmSettings[60];
+    document.getElementById('pwm70').value = pwmSettings[70];
+    document.getElementById('pwm80').value = pwmSettings[80];
     document.getElementById('pwm90').value = pwmSettings[90];
-    document.getElementById('pwm120').value = pwmSettings[120];
-    document.getElementById('pwm150').value = pwmSettings[150];
 
     // Show modal
     calibrationModal.classList.add('active');
@@ -526,9 +604,9 @@ testPwmBtns.forEach(btn => {
 saveCalibrateBtn.addEventListener('click', () => {
     // Get values dari input fields
     pwmSettings[60] = parseInt(document.getElementById('pwm60').value) || 200;
-    pwmSettings[90] = parseInt(document.getElementById('pwm90').value) || 350;
-    pwmSettings[120] = parseInt(document.getElementById('pwm120').value) || 500;
-    pwmSettings[150] = parseInt(document.getElementById('pwm150').value) || 650;
+    pwmSettings[70] = parseInt(document.getElementById('pwm70').value) || 275;
+    pwmSettings[80] = parseInt(document.getElementById('pwm80').value) || 350;
+    pwmSettings[90] = parseInt(document.getElementById('pwm90').value) || 425;
 
     // Save ke localStorage
     localStorage.setItem('pwmSettings', JSON.stringify(pwmSettings));
@@ -1102,6 +1180,10 @@ function init() {
     if (ballsRemainingDisplay) ballsRemainingDisplay.textContent = ballsRemaining;
     if (modeDisplay) modeDisplay.textContent = 'Manual'; // Default mode
 
+    // Set timer input dan display dari localStorage
+    if (timerInput) timerInput.value = autoModeTimer.toFixed(1);
+    if (timerValueDisplay) timerValueDisplay.textContent = formatTimer(autoModeTimer) + ' detik';
+
     // Set initial slider gradient
     if (ballCountSlider) updateSliderGradient(ballCountSlider);
 
@@ -1109,6 +1191,12 @@ function init() {
     const ballCountCard = document.getElementById('ballCountCard');
     if (ballCountCard) {
         ballCountCard.style.display = 'none';
+    }
+
+    // Sembunyikan card timer di awal (mode manual default)
+    const timerCard = document.getElementById('timerCard');
+    if (timerCard) {
+        timerCard.style.display = 'none';
     }
 
     // Sembunyikan row target bola di awal
@@ -1122,6 +1210,7 @@ function init() {
     console.log('  - servoStatusDisplay:', servoStatusDisplay ? '✓' : '✗');
     console.log('  - machineStatusDisplay:', machineStatusDisplay ? '✓' : '✗');
     console.log('Initial balls remaining:', ballsRemaining, '(sesuai INITIAL_BALLS di firmware)');
+    console.log('Auto mode timer:', autoModeTimer, 'seconds (TANPA BATAS)');
     console.log('EMQX Public Broker:', MQTT_BROKER);
     console.log('WebSocket Secure Port:', MQTT_PORT);
 
