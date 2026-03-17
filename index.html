@@ -103,7 +103,7 @@
                 <span class="status-value" id="motorStatus">OFF</span>
             </div>
             <div class="status-row">
-                <span class="status-label"><i class="fas fa-hand-paper"></i> Servo</span>
+                <span class="status-label"><i class="fas fa-drafting-compass"></i> Servo</span>
                 <span class="status-value" id="servoStatus">90°</span>
             </div>
         </div>
@@ -124,6 +124,24 @@
                     <span>3</span>
                     <span>6</span>
                     <span>9</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" id="timerCard" style="display: none;">
+            <div class="card-title">
+                <i class="fas fa-stopwatch"></i>
+                Timer Periode (Otomatis)
+            </div>
+            <div class="timer-input-container">
+                <div class="timer-input-group">
+                    <label for="timerInput">Waktu Periode (detik):</label>
+                    <input type="number" id="timerInput" class="timer-input"
+                           min="0.1" step="0.1" placeholder="10" value="2">
+                    <div class="timer-current-display">
+                        <span class="timer-label">Timer Saat Ini:</span>
+                        <span class="timer-value" id="timerValueDisplay">2 detik</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -151,23 +169,23 @@
         <div class="card">
             <div class="card-title">
                 <i class="fas fa-arrows-alt-h"></i>
-                Jarak Lontaran 
+                Jarak Lontaran
             </div>
             <div class="distance-options">
                 <button class="distance-btn" data-distance="60" data-pwm="200">
                     <span class="dist-label">60 cm</span>
 
                 </button>
-                <button class="distance-btn" data-distance="90" data-pwm="350">
+                <button class="distance-btn" data-distance="70" data-pwm="275">
+                    <span class="dist-label">70 cm</span>
+
+                </button>
+                <button class="distance-btn" data-distance="80" data-pwm="350">
+                    <span class="dist-label">80 cm</span>
+
+                </button>
+                <button class="distance-btn" data-distance="90" data-pwm="425">
                     <span class="dist-label">90 cm</span>
-
-                </button>
-                <button class="distance-btn" data-distance="120" data-pwm="500">
-                    <span class="dist-label">120 cm</span>
-
-                </button>
-                <button class="distance-btn" data-distance="150" data-pwm="650">
-                    <span class="dist-label">150 cm</span>
 
                 </button>
             </div>
@@ -175,7 +193,7 @@
 
         <!-- Manual Mode Button -->
         <button class="action-btn btn-start" id="manualFireBtn" style="display: block;">
-            <i class="fas fa-fighter-jet"></i> Keluarkan Bola
+            <i class="fas fa-play"></i> Keluarkan Bola
         </button>
 
         <!-- Auto Mode Info -->
@@ -183,6 +201,10 @@
             <div class="info-row">
                 <i class="fas fa-info-circle"></i>
                 <span>Mengeluarkan <strong id="autoBallCount">1</strong> bola ke jarak <strong id="autoDistance">60 cm</strong></span>
+            </div>
+            <div class="info-row">
+                <i class="fas fa-stopwatch"></i>
+                <span>Timer: <strong id="autoTimerDisplay">2</strong> detik/bola</span>
             </div>
             <div class="progress-bar-container">
                 <div class="progress-bar">
@@ -239,31 +261,31 @@
                         </div>
                     </div>
                     <div class="calibration-item">
+                        <label>Jarak 70 cm</label>
+                        <div class="pwm-input-group">
+                            <span>PWM:</span>
+                            <input type="number" id="pwm70" class="pwm-input" value="275" min="0" max="1023">
+                            <button class="test-pwm-btn" data-distance="70">
+                                <i class="fas fa-play"></i> Test
+                            </button>
+                        </div>
+                    </div>
+                    <div class="calibration-item">
+                        <label>Jarak 80 cm</label>
+                        <div class="pwm-input-group">
+                            <span>PWM:</span>
+                            <input type="number" id="pwm80" class="pwm-input" value="350" min="0" max="1023">
+                            <button class="test-pwm-btn" data-distance="80">
+                                <i class="fas fa-play"></i> Test
+                            </button>
+                        </div>
+                    </div>
+                    <div class="calibration-item">
                         <label>Jarak 90 cm</label>
                         <div class="pwm-input-group">
                             <span>PWM:</span>
-                            <input type="number" id="pwm90" class="pwm-input" value="350" min="0" max="1023">
+                            <input type="number" id="pwm90" class="pwm-input" value="425" min="0" max="1023">
                             <button class="test-pwm-btn" data-distance="90">
-                                <i class="fas fa-play"></i> Test
-                            </button>
-                        </div>
-                    </div>
-                    <div class="calibration-item">
-                        <label>Jarak 120 cm</label>
-                        <div class="pwm-input-group">
-                            <span>PWM:</span>
-                            <input type="number" id="pwm120" class="pwm-input" value="500" min="0" max="1023">
-                            <button class="test-pwm-btn" data-distance="120">
-                                <i class="fas fa-play"></i> Test
-                            </button>
-                        </div>
-                    </div>
-                    <div class="calibration-item">
-                        <label>Jarak 150 cm</label>
-                        <div class="pwm-input-group">
-                            <span>PWM:</span>
-                            <input type="number" id="pwm150" class="pwm-input" value="650" min="0" max="1023">
-                            <button class="test-pwm-btn" data-distance="150">
                                 <i class="fas fa-play"></i> Test
                             </button>
                         </div>
