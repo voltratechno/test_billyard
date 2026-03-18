@@ -393,7 +393,7 @@ manualFireBtn.addEventListener('click', () => {
     // Notifikasi
     showNotification(
         '🎱 Mengeluarkan Bola',
-        `Jarak: ${selectedDistance} cm\nPWM: ${selectedPWM}\nMotor berhenti saat IR OUT terdeteksi`,
+        `Jarak: ${selectedDistance} cm\nPWM: ${selectedPWM}\nMotor berhenti saat laser terhalang`,
         'info',
         3000
     );
@@ -448,7 +448,7 @@ autoStartBtn.addEventListener('click', () => {
     // Show notification
     showNotification(
         '🔄 Mode Otomatis Dimulai',
-        `Mengeluarkan ${selectedBallCount} bola\nJarak: ${selectedDistance} cm\nPWM: ${selectedPWM}\nTimer periode: ${formatTimer(autoModeTimer)} detik/bola\nSetiap bola berhenti saat IR OUT terdeteksi`,
+        `Mengeluarkan ${selectedBallCount} bola\nJarak: ${selectedDistance} cm\nPWM: ${selectedPWM}\nTimer periode: ${formatTimer(autoModeTimer)} detik/bola\nSetiap bola berhenti saat laser terhalang`,
         'info',
         4000
     );
@@ -878,31 +878,78 @@ function updateSensorStatus(data) {
     const irUpState = document.getElementById('irUpState');
     const irDownState = document.getElementById('irDownState');
 
-    // Update IR UP (Bola Keluar)
-    if (data.ir_up !== undefined) {
-        sensorStatus.ir_up = data.ir_up;
-        if (data.ir_up) {
-            irUpIndicator.classList.add('active');
-            irUpState.textContent = 'DETECTED';
-            irUpState.classList.add('detected');
-        } else {
-            irUpIndicator.classList.remove('active');
-            irUpState.textContent = 'CLEAR';
-            irUpState.classList.remove('detected');
+    console.log('📡 Sensor Status Update:', data);
+    console.log('  ir_down:', data.ir_down, '(IR IN - bola masuk)');
+    console.log('  laser_blocked:', data.laser_blocked, '(Laser RX - bola keluar)');
+    console.log('  ir_raw:', data.ir_raw, '(0=LOW, 1=HIGH)');
+    if (data.laser_raw !== undefined) {
+        console.log('  laser_raw:', data.laser_raw, '(0=LOW/blocked, 1=HIGH/clear)');
+    }
+
+    // Update IR DOWN (Bola Masuk) - menggunakan field ir_down
+    // ir_down = true → ada objek terdeteksi → hijau
+    // ir_down = false → tidak ada objek → normal (tidak hijau)
+    if (data.ir_down !== undefined) {
+        sensorStatus.ir_down = data.ir_down;
+        if (irDownIndicator && irDownState) {
+            if (data.ir_down) {
+                // Ada objek - aktifkan indicator
+                irDownIndicator.classList.add('active');
+                irDownState.textContent = 'DETECTED';
+                irDownState.classList.add('detected');
+                console.log('✅ IR IN: Object DETECTED - Indicator GREEN');
+            } else {
+                // Tidak ada objek - matikan indicator SEMUA class
+                irDownIndicator.classList.remove('active');
+                irDownState.textContent = 'CLEAR';
+                irDownState.classList.remove('detected');
+                // Pastikan tidak ada style inline yang tertinggal
+                irDownState.style.color = '';
+                console.log('⭕ IR IN: No object - Indicator NORMAL (RESET)');
+            }
         }
     }
 
-    // Update IR DOWN (Bola Masuk)
-    if (data.ir_down !== undefined) {
-        sensorStatus.ir_down = data.ir_down;
-        if (data.ir_down) {
-            irDownIndicator.classList.add('active');
-            irDownState.textContent = 'DETECTED';
-            irDownState.classList.add('detected');
-        } else {
-            irDownIndicator.classList.remove('active');
-            irDownState.textContent = 'CLEAR';
-            irDownState.classList.remove('detected');
+    // Update IR UP/LASER RX (Bola Keluar) - menggunakan field laser_blocked
+    // DIBALIK: laser_blocked = true → normal, false → bola lewat
+    if (data.laser_blocked !== undefined) {
+        sensorStatus.ir_up = !data.laser_blocked; // Balik logika
+        if (irUpIndicator && irUpState) {
+            if (!data.laser_blocked) {
+                // Bola lewat/sinar terhalang - aktifkan indicator HIJAU
+                irUpIndicator.classList.add('active');
+                irUpState.textContent = 'DETECTED';
+                irUpState.classList.add('detected');
+                console.log('✅ LASER: Ball Detected - Indicator GREEN (laser_blocked=' + data.laser_blocked + ')');
+            } else {
+                // Normal/tidak ada bola - indicator NORMAL
+                irUpIndicator.classList.remove('active');
+                irUpState.textContent = 'CLEAR';
+                irUpState.classList.remove('detected');
+                // Pastikan tidak ada style inline yang tertinggal
+                irUpState.style.color = '';
+                console.log('⭕ LASER: Normal - Indicator NORMAL (laser_blocked=' + data.laser_blocked + ')');
+            }
+        }
+    }
+    // Fallback untuk kompatibilitas dengan field ir_up lama
+    else if (data.ir_up !== undefined) {
+        sensorStatus.ir_up = data.ir_up;
+        if (irUpIndicator && irUpState) {
+            if (data.ir_up) {
+                // Detected - aktifkan indicator HIJAU
+                irUpIndicator.classList.add('active');
+                irUpState.textContent = 'DETECTED';
+                irUpState.classList.add('detected');
+                console.log('✅ IR UP (OLD): Detected - Indicator GREEN');
+            } else {
+                // Clear - matikan indicator NORMAL
+                irUpIndicator.classList.remove('active');
+                irUpState.textContent = 'CLEAR';
+                irUpState.classList.remove('detected');
+                irUpState.style.color = '';
+                console.log('⭕ IR UP (OLD): Clear - Indicator NORMAL (RESET)');
+            }
         }
     }
 }
@@ -1006,7 +1053,7 @@ function handleCounterEvent(data) {
 
         showNotification(
             '📤 Bola Keluar',
-            `Counter: ${data.new_count}/${data.max_balls}\nMotor berhenti saat IR OUT terdeteksi`,
+            `Counter: ${data.new_count}/${data.max_balls}\nMotor berhenti saat laser terhalang`,
             'info',
             3000
         );
