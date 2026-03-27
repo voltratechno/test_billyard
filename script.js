@@ -1,4 +1,26 @@
 // ===========================
+// FIREBASE CONFIGURATION
+// ===========================
+const firebaseConfig = {
+  apiKey: "AIzaSyB53J9m0IEfIUYxerwc0n65nCxdF0JOqpA",
+  authDomain: "trainerbilliard.firebaseapp.com",
+  databaseURL: "https://trainerbilliard-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "trainerbilliard",
+  storageBucket: "trainerbilliard.firebasestorage.app",
+  messagingSenderId: "563812776339",
+  appId: "1:563812776339:web:e7db8ccd208ca063c05066"
+};
+
+// Initialize Firebase
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+console.log('✓ Firebase initialized');
+console.log('Project ID:', firebaseConfig.projectId);
+console.log('Database URL:', firebaseConfig.databaseURL);
+console.log('User ID: 8i7zA1AVlId6iZHLEZDeDsows4u2');
+
+// ===========================
 // MQTT CONFIGURATION
 // ===========================
 // Menggunakan EMQX Public Broker (Gratis & Support WSS)
@@ -60,10 +82,10 @@ let sensorStatus = {
 
 // PWM Settings (disimpan di localStorage agar tidak hilang saat refresh)
 let pwmSettings = {
-    60: 200,
-    70: 275,
-    80: 350,
-    90: 425
+    60: 800,
+    70: 900,
+    80: 1000,
+    90: 1023
 };
 
 // Load PWM settings dari localStorage
@@ -603,10 +625,10 @@ testPwmBtns.forEach(btn => {
 // Save PWM settings
 saveCalibrateBtn.addEventListener('click', () => {
     // Get values dari input fields
-    pwmSettings[60] = parseInt(document.getElementById('pwm60').value) || 200;
-    pwmSettings[70] = parseInt(document.getElementById('pwm70').value) || 275;
-    pwmSettings[80] = parseInt(document.getElementById('pwm80').value) || 350;
-    pwmSettings[90] = parseInt(document.getElementById('pwm90').value) || 425;
+    pwmSettings[60] = parseInt(document.getElementById('pwm60').value) || 800;
+    pwmSettings[70] = parseInt(document.getElementById('pwm70').value) || 900;
+    pwmSettings[80] = parseInt(document.getElementById('pwm80').value) || 1000;
+    pwmSettings[90] = parseInt(document.getElementById('pwm90').value) || 1023;
 
     // Save ke localStorage
     localStorage.setItem('pwmSettings', JSON.stringify(pwmSettings));
@@ -1015,6 +1037,9 @@ function handleCounterEvent(data) {
             }, 2000);
         }
 
+        // Simpan ke Firebase
+        saveBallEventToFirebase('ball_in', data.new_count, ballsInCount, ballsOutCount, data.message);
+
         showNotification(
             '✅ Bola Masuk',
             `Counter: ${data.new_count}/${data.max_balls}\nMenghitung: 0 → 9\n${data.message}`,
@@ -1037,6 +1062,9 @@ function handleCounterEvent(data) {
                 ballOutDisplay.style.display = 'none';
             }, 2000);
         }
+
+        // Simpan ke Firebase
+        saveBallEventToFirebase('ball_out', data.new_count, ballsInCount, ballsOutCount, data.message);
 
         // Update progress jika auto mode running
         if (autoModeRunning) {
@@ -1063,6 +1091,9 @@ function handleCounterEvent(data) {
         autoModeComplete();
     }
     else if (data.event === 'max_reached') {
+        // Simpan ke Firebase
+        saveBallEventToFirebase('max_reached', data.new_count, ballsInCount, ballsOutCount, data.message);
+
         showNotification(
             '⚠️ Penuh',
             'Maksimal 9 bola! Tidak bisa menambah lagi.',
@@ -1075,6 +1106,9 @@ function handleCounterEvent(data) {
         if (autoModeRunning) {
             stopAutoMode();
         }
+
+        // Simpan ke Firebase
+        saveBallEventToFirebase('empty', data.new_count, ballsInCount, ballsOutCount, data.message);
 
         showNotification(
             '❌ Tidak Ada Bola',
@@ -1094,6 +1128,9 @@ function handleCounterEvent(data) {
         if (autoModeRunning) {
             stopAutoMode();
         }
+
+        // Simpan ke Firebase
+        saveBallEventToFirebase('reset', data.new_count, ballsInCount, ballsOutCount, data.message);
 
         showNotification(
             '🔄 Reset Berhasil',
@@ -1186,6 +1223,39 @@ function publishMQTT(topic, message) {
 }
 
 // ===========================
+// FIREBASE DATABASE FUNCTIONS
+// ===========================
+
+// Save ball event to Firebase (bola masuk/keluar/reset)
+function saveBallEventToFirebase(event, count, ballsIn, ballsOut, message) {
+    // Hanya update /current node, tanpa menyimpan events
+    updateCurrentStateToFirebase(count, ballsIn, ballsOut);
+}
+
+// Update current state di Firebase
+function updateCurrentStateToFirebase(count, ballsIn, ballsOut) {
+    const currentData = {
+        count: count,
+        ballsIn: ballsIn,
+        ballsOut: ballsOut,
+        lastUpdate: firebase.database.ServerValue.TIMESTAMP,
+        lastUpdateDate: new Date().toISOString()
+    };
+
+    db.ref('balls/current').update(currentData)
+        .then(() => {
+            console.log('✓ Current state updated:', currentData);
+        })
+        .catch((error) => {
+            console.error('✗ Firebase update error:', error);
+        });
+}
+
+// ===========================
+// END FIREBASE FUNCTIONS
+// ===========================
+
+// ===========================
 // END MQTT FUNCTIONS
 // ===========================
 
@@ -1204,6 +1274,41 @@ async function checkConnection() {
 
 // Check connection setiap 5 detik
 setInterval(checkConnection, 5000);
+
+// Initialize Firebase - Cek dan buat data awal jika belum ada
+function initFirebaseListener() {
+    console.log('Checking Firebase data...');
+
+    // Cek apakah data sudah ada, jika belum buat data awal
+    db.ref('balls/current').get().then((snapshot) => {
+        if (!snapshot.exists()) {
+            console.log('⚠️ Data Firebase belum ada, membuat data awal...');
+
+            // Buat data awal
+            const initialData = {
+                count: 0,
+                ballsIn: 0,
+                ballsOut: 0,
+                lastUpdate: firebase.database.ServerValue.TIMESTAMP,
+                lastUpdateDate: new Date().toISOString()
+            };
+
+            db.ref('balls/current').set(initialData)
+                .then(() => {
+                    console.log('✓ Data awal Firebase berhasil dibuat');
+                })
+                .catch((error) => {
+                    console.error('✗ Gagal membuat data awal:', error);
+                });
+        } else {
+            console.log('✓ Data Firebase sudah ada');
+        }
+    }).catch((error) => {
+        console.error('✗ Error checking Firebase:', error);
+    });
+
+    console.log('✓ Firebase initialized');
+}
 
 // Initialize
 function init() {
@@ -1260,6 +1365,9 @@ function init() {
     console.log('Auto mode timer:', autoModeTimer, 'seconds (TANPA BATAS)');
     console.log('EMQX Public Broker:', MQTT_BROKER);
     console.log('WebSocket Secure Port:', MQTT_PORT);
+
+    // Initialize Firebase listener
+    initFirebaseListener();
 
     // Initialize MQTT connection
     console.log('DOM ready, starting MQTT connection...');
