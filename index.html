@@ -12,6 +12,9 @@
     <script src="config.js"></script>
     <!-- MQTT.js Library -->
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 </head>
 <body>
     <div class="container">
@@ -56,7 +59,7 @@
             <div class="card sensor-card">
                 <div class="card-title">
                     <i class="fas fa-arrow-circle-up"></i>
-                    Bola Keluar (Laser)
+                    Bola Keluar
                 </div>
                 <div class="sensor-single">
                     <div class="sensor-indicator-large" id="irUpIndicator">
@@ -70,7 +73,7 @@
             <div class="card sensor-card">
                 <div class="card-title">
                     <i class="fas fa-arrow-circle-down"></i>
-                    Bola Masuk (IR)
+                    Bola Masuk
                 </div>
                 <div class="sensor-single">
                     <div class="sensor-indicator-large" id="irDownIndicator">
@@ -254,7 +257,7 @@
                         <label>Jarak 60 cm</label>
                         <div class="pwm-input-group">
                             <span>PWM:</span>
-                            <input type="number" id="pwm60" class="pwm-input" value="200" min="0" max="1023">
+                            <input type="number" id="pwm60" class="pwm-input" value="800" min="0" max="1023">
                             <button class="test-pwm-btn" data-distance="60">
                                 <i class="fas fa-play"></i> Test
                             </button>
@@ -264,7 +267,7 @@
                         <label>Jarak 70 cm</label>
                         <div class="pwm-input-group">
                             <span>PWM:</span>
-                            <input type="number" id="pwm70" class="pwm-input" value="275" min="0" max="1023">
+                            <input type="number" id="pwm70" class="pwm-input" value="900" min="0" max="1023">
                             <button class="test-pwm-btn" data-distance="70">
                                 <i class="fas fa-play"></i> Test
                             </button>
@@ -274,7 +277,7 @@
                         <label>Jarak 80 cm</label>
                         <div class="pwm-input-group">
                             <span>PWM:</span>
-                            <input type="number" id="pwm80" class="pwm-input" value="350" min="0" max="1023">
+                            <input type="number" id="pwm80" class="pwm-input" value="1000" min="0" max="1023">
                             <button class="test-pwm-btn" data-distance="80">
                                 <i class="fas fa-play"></i> Test
                             </button>
@@ -284,7 +287,7 @@
                         <label>Jarak 90 cm</label>
                         <div class="pwm-input-group">
                             <span>PWM:</span>
-                            <input type="number" id="pwm90" class="pwm-input" value="425" min="0" max="1023">
+                            <input type="number" id="pwm90" class="pwm-input" value="1023" min="0" max="1023">
                             <button class="test-pwm-btn" data-distance="90">
                                 <i class="fas fa-play"></i> Test
                             </button>
